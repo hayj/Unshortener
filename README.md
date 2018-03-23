@@ -22,6 +22,7 @@ Then get the data in the data dir.
 
 Call the init:
 
+	from unshortener.unshortener import *
 	uns = Unshortener\
 	(
 		user=None, password=None, host="localhost", # mongo auth
