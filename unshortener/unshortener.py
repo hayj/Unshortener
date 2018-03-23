@@ -1,0 +1,325 @@
+# coding: utf-8
+
+# pew in unshortener-venv python ~/wm-dist-tmp/Unshortener/unshortener/unshortener.py
+
+import requests
+from datatools.url import *
+from urllib.request import urlopen
+from systemtools.basics import *
+from systemtools.location import *
+from systemtools.logger import *
+import requests.auth
+from datastructuretools.hashmap import *
+from webbrowser.httpbrowser import *
+from webbrowser.browser import *
+from webbrowser.utils import *
+from threading import Thread
+try:
+    from systemtools.hayj import *
+except: pass
+import random
+
+
+class Unshortener():
+    """
+        See the README
+    """
+    def __init__ \
+    (
+        self,
+        logger=None,
+        verbose=True,
+        serializableDictParams=\
+        {
+            "limit": 10000000,
+            "useMongodb": True,
+            "name": "unshortenedurls",
+            "cacheCheckRatio": 0.0,
+            "mongoIndex": "url",
+        },
+        httpBrowserParams=\
+        {
+            "maxRetryWithoutProxy": 0,
+            "maxRetryIfTimeout": 1,
+            "maxRetryIf407": 1,
+        },
+        user=None, password=None, host=None,
+        shortenersDomainsFilePath=None,
+        retryFailedRatio=0.5,
+        useProxy=True,
+        randomProxyFunct=None,
+        timeout=25,
+        maxRetry=2,
+        nextTriesTimeoutRatio=0.3,
+        readOnly=False,
+        proxy=None,
+    ):
+        # We store some params:
+        self.retryFailedRatio = retryFailedRatio
+        self.verbose = verbose
+        self.logger = logger
+        self.timeout = timeout
+        self.maxRetries = maxRetry
+        self.nextTriesTimeoutRatio = nextTriesTimeoutRatio
+        self.readOnly = readOnly
+        self.proxy = proxy
+
+        # We create the url parser:
+        self.urlParser = URLParser()
+
+        # We get the default randomProxyFunct:
+        self.useProxy = useProxy
+        self.randomProxyFunct = randomProxyFunct
+        if self.randomProxyFunct is None:
+            try:
+                self.randomProxyFunct = getRandomProxy
+            except: pass
+        if self.randomProxyFunct is None:
+            self.useProxy = False
+
+        # We init the mongo collection through SerializableDict:
+        self.serializableDictParams = serializableDictParams
+        if host is None:
+            try:
+                (user, password, host) = getOctodsMongoAuth()
+            except: pass
+        self.serializableDictParams["user"] = user
+        self.serializableDictParams["password"] = password
+        self.serializableDictParams["host"] = host
+        self.serializableDictParams["logger"] = self.logger
+        self.serializableDictParams["verbose"] = self.verbose
+        self.data = SerializableDict(**self.serializableDictParams)
+
+
+        # We get shorteners domains:
+        self.shortenersDomainsFilePath = shortenersDomainsFilePath
+        if self.shortenersDomainsFilePath is None:
+            self.shortenersDomainsFilePath = getDataDir() + "/Misc/crawling/shorteners.txt"
+        self.shortenersDomains = None
+        self.initShortenersDomains()
+
+        # We create the http browser:
+        self.httpBrowserParams = httpBrowserParams
+        self.httpBrowser = HTTPBrowser(logger=self.logger,
+                                       verbose=self.verbose,
+                                       **self.httpBrowserParams)
+
+    def initShortenersDomains(self):
+        if self.shortenersDomains is None:
+            shorteners = fileToStrList(self.shortenersDomainsFilePath, removeDuplicates=True)
+            newShorteners = []
+            for current in shorteners:
+                current = current.lower()
+                newShorteners.append(current)
+            shorteners = newShorteners
+            self.shortenersDomains = set()
+            for current in shorteners:
+                newCurrent = self.urlParser.getDomain(current)
+                self.shortenersDomains.add(newCurrent)
+            self.shortenersDomains = list(self.shortenersDomains)
+            # We filter all by presence of a point:
+            newShortenersDomains= []
+            for current in self.shortenersDomains:
+                if "." in current:
+                    newShortenersDomains.append(current)
+            self.shortenersDomains = newShortenersDomains
+
+    def getUnshortenersDomains(self):
+        return self.shortenersDomains
+
+    def close(self):
+        self.data.close()
+
+    def isShortener(self, url):
+        """
+            Use this method to test if an url come from an unshortener service
+        """
+        smartDomain = self.urlParser.getDomain(url)
+        return smartDomain in self.shortenersDomains
+
+    def isAlreadyUnshortened(self, *args, **kwargs):
+        return self.hasKey(*args, **kwargs)
+    def hasKey(self, url):
+        """
+            This method test if an url was already unshortened before
+        """
+        url = self.urlParser.normalize(url)
+        return self.data.hasKey(url)
+
+
+    def unshort\
+    (
+        self,
+        *args,
+        **kwargs
+    ):
+        """
+            This method will call request but give the last url (unshortened) instead
+            of all data
+        """
+        result = self.request(*args, **kwargs)
+        if result is None:
+            return None
+        else:
+            if dictContains(result, "lastUrl"):
+                return result["lastUrl"]
+            else:
+                return None
+
+    def request\
+    (
+        self,
+        url,
+        force=False,
+        retriesCount=0,
+    ):
+        """
+            This method will request the given url
+            You can read the last url (unshortened) in the field "lastUrl" of the returned dict
+            If the request failed, this method return None
+            force as True will give the last url for the request, even if it is not a shortener...
+        """
+        # We set the timeout:
+        timeout = self.timeout
+        if retriesCount >= 1:
+            timeout = int(self.nextTriesTimeoutRatio * timeout)
+        # We parse the url:
+        url = self.urlParser.normalize(url)
+        smartDomain = self.urlParser.getDomain(url)
+        # We return None if we don't have to request it:
+        thisIsAShortener = smartDomain in self.shortenersDomains
+        if not force and not thisIsAShortener:
+            return None
+        # We check if we already have the url:
+        if self.data.hasKey(url):
+            log(url + " was in the Unshortener database!", self)
+            return self.data.get(url)
+        # If we read only, we don't request the url:
+        elif self.readOnly:
+            log(url + " is not in the database and the unshortener was set as read only!", self)
+            return None
+        # Else we can request it:
+        else:
+            # We get a random proxy:
+            proxy = None
+            if self.useProxy:
+                proxy = self.proxy
+                if proxy is None:
+                    proxy = self.randomProxyFunct()
+            # We set the proxy and the timeout:
+            self.httpBrowser.setProxy(proxy)
+            self.httpBrowser.setTimeout(timeout)
+            # We request the url:
+            result = self.httpBrowser.get(url)
+            # We add some params to the result:
+            result["url"] = url
+            result["isShortener"] = thisIsAShortener
+            # And if the request succeded:
+#             if result["status"] == REQUEST_STATUS.duplicate or \
+#                result["status"] == REQUEST_STATUS.success or \
+#                result["status"] == REQUEST_STATUS.error404 or \
+#                result["status"] == REQUEST_STATUS.timeoutWithContent:
+            if result["httpStatus"] == 200 or \
+               result["httpStatus"] == 404:
+                # We add the row:
+                self.data[url] = result
+                # We log it:
+                log("Unshort succedded: " + url, self)
+                log(getRequestInfos(result), self)
+                # And finally we return the result:
+                return result
+            # Else we retry:
+            else:
+                # We log the error:
+                log("Unshort failed: " + url, self)
+                log(getRequestInfos(result), self)
+#                 log(listToStr(reduceDictStr(result, replaceNewLine=True)), self)
+                # If we can retry:
+                if retriesCount < self.maxRetries:
+                    # We recursively call the method:
+                    log("We retry to unshort: " + url, self)
+                    return self.request(url,
+                                        force=force,
+                                        retriesCount=retriesCount+1)
+                # If we failed, we just return None:
+                else:
+                    return None
+
+def getRequestInfos(result):
+    return str(result["proxy"]) + " " + str(result["status"].name) + " (" + str(result["httpStatus"]) + ")"
+
+def test1():
+    uns = Unshortener(host="localhost")
+    url = "https://api.ipify.org/?format=json"
+#     url = "http://httpbin.org/redirect/3"
+    printLTS(uns.unshort(url, force=True))
+
+def test2():
+    uns = Unshortener(host="localhost")
+    printLTS(uns.getUnshortenersDomains())
+
+def test3():
+    def getShares(crawlOrScrap):
+        if dictContains(crawlOrScrap, "scrap"):
+            scrap = crawlOrScrap["scrap"]
+        else:
+            scrap = crawlOrScrap
+        if dictContains(scrap, "tweets"):
+            tweets = scrap["tweets"]
+            for tweet in tweets:
+                if dictContains(tweet, "shares"):
+                    for share in tweet["shares"]:
+                        yield share
+
+    uns = Unshortener(host="localhost", useProxy=False)
+    (user, password, host) = getStudentMongoAuth()
+    collection = MongoCollection("twitter", "usercrawl",
+                                 user=user, password=password, host=host)
+    i = 0
+    for current in collection.find():
+        urls = list(getShares(current))
+        for url in urls:
+            url = url["url"]
+            if getRandomFloat() > 0.8 and (uns.isShortener(url) or getRandomFloat() > 0.95):
+                print(url)
+                print("isShortener: " + str(uns.isShortener(url)))
+                print(uns.unshort(url, force=True))
+                print()
+                print()
+                print()
+                print()
+#                 input()
+                i += 1
+                if i > 100:
+                    exit()
+
+def test4():
+    urls = \
+    [
+        "http://ow.ly/DIFx30hfmsE",
+        "http://bit.ly/2jBKQoh",
+    ]
+    uns = Unshortener(host="localhost")
+    print()
+    print()
+    print()
+    print()
+    for url in urls:
+        print(url)
+        print("isShortener: " + str(uns.isShortener(url)))
+        print(uns.unshort(url, force=True))
+        print()
+        print()
+        print()
+        print()
+
+if __name__ == '__main__':
+#     test1()
+#     test2()
+    test3()
+#     test4()
+
+
+
+
+
