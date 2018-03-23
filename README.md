@@ -37,6 +37,10 @@ Use `uns.unshort(url)` to get the unshortened url.
 
 Use `uns.request(url)` to get all the data returned by httpbrowser.HTTPBrowser, it also will cache the data.
 
+## Serialization
+
+By default it use a mongo database, but you can use a pickle file by changing `serializableDictParams` in the init method (set "useMongodb": False). See SerializableDict from DatastructureTools for more informations.
+
 ## Proxies
 
 The proxy object must be a dict `{"ip": "xxx.xxx.xxx.xxx", "port": "22", "user": None, "password": None}`
