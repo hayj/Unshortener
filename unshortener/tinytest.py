@@ -7,7 +7,7 @@ from systemtools.logger import *
 from systemtools.location import *
 from systemtools.system import *
 
-from webcrawler.httpbrowser import *
+from hjwebbrowser.httpbrowser import *
 
 
 # On a 10% des user twitter qui utilisent des tinyurl.com

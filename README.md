@@ -13,7 +13,7 @@ The structure of the SerializableDict is:
 
 ## Install
 
-	git clone git@github.com:hayj/Unshortener.git
+	git clone https://github.com/hayj/Unshortener.git
 	pip install ./Unshortener/wm-dist/*.tar.gz
 
 Then get the data in the data dir.

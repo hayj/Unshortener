@@ -10,9 +10,9 @@ from systemtools.location import *
 from systemtools.logger import *
 import requests.auth
 from datastructuretools.hashmap import *
-from webbrowser.httpbrowser import *
-from webbrowser.browser import *
-from webbrowser.utils import *
+from hjwebbrowser.httpbrowser import *
+from hjwebbrowser.browser import *
+from hjwebbrowser.utils import *
 from threading import Thread
 try:
     from systemtools.hayj import *
@@ -124,12 +124,33 @@ class Unshortener():
                     newShortenersDomains.append(current)
             self.shortenersDomains = newShortenersDomains
 
+    def reduceIrrelevantUrls(self, isRelevantUrlFunct):
+        """
+            If some last urls are not enough relevant to keep the html content
+            You can delete it by call this method
+            You have to give a funct in params
+            This method can take a long time and will update all row so you will loose
+            old/new read/write sort.
+        """
+        for theHash, current in self.data.items():
+            if isRelevantUrlFunct(current["lastUrl"]):
+                if dictContains(current, "relevant") and not current["relevant"]:
+                    logError("You previously set this row as irrelevant but now you set it as relevant, so you lost the html data, you can re-set the html data using hjwebbrowser.httpbrowser.HTTPBrowser", self)
+                    logError(reduceDictStr(current), self)
+                self.data.updateRow(theHash, "relevant", True)
+            else:
+                self.data.updateRow(theHash, "html", None)
+                self.data.updateRow(theHash, "relevant", False)
+
     def getUnshortenersDomains(self):
         return self.shortenersDomains
 
     def close(self):
         self.data.close()
 
+
+    def isShortened(self, *args, **kwargs):
+        return self.isShortener(*args, **kwargs)
     def isShortener(self, url):
         """
             Use this method to test if an url come from an unshortener service
@@ -137,6 +158,8 @@ class Unshortener():
         smartDomain = self.urlParser.getDomain(url)
         return smartDomain in self.shortenersDomains
 
+    def has(self, *args, **kwargs):
+        return self.hasKey(*args, **kwargs)
     def isAlreadyUnshortened(self, *args, **kwargs):
         return self.hasKey(*args, **kwargs)
     def hasKey(self, url):
@@ -192,11 +215,11 @@ class Unshortener():
             return None
         # We check if we already have the url:
         if self.data.hasKey(url):
-            log(url + " was in the Unshortener database!", self)
+            # log(url + " was in the Unshortener database!", self)
             return self.data.get(url)
         # If we read only, we don't request the url:
         elif self.readOnly:
-            log(url + " is not in the database and the unshortener was set as read only!", self)
+#             log(url + " is not in the database and the unshortener was set as read only!", self)
             return None
         # Else we can request it:
         else:
@@ -213,7 +236,8 @@ class Unshortener():
             result = self.httpBrowser.get(url)
             # We add some params to the result:
             result["url"] = url
-            result["isShortener"] = thisIsAShortener
+#             result["isShortener"] = thisIsAShortener
+            result["relevant"] = True
             # And if the request succeded:
 #             if result["status"] == REQUEST_STATUS.duplicate or \
 #                result["status"] == REQUEST_STATUS.success or \
