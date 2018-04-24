@@ -26,8 +26,8 @@ Call the init:
 	uns = Unshortener\
 	(
 		user=None, password=None, host="localhost", # mongo auth
-		shortenersDomainsFilePath="../../data/shorteners.txt", # Set the file path
-		useProxy=True, # You can use a proxy
+		shortenersDomainsFilePath=homeDir() + "Data/shorteners.txt", # Set the file path
+		useProxy=True, # You can use proxy or not
 		randomProxyFunct=None, # You can give a random proxy funct
 		proxy=None, # Or a proxy
 	)
@@ -40,7 +40,9 @@ Use `uns.request(url)` to get all the data returned by httpbrowser.HTTPBrowser, 
 
 ## Serialization
 
-By default it use a mongo database, but you can use a pickle file by changing `serializableDictParams` in the init method (set "useMongodb": False). See SerializableDict from DatastructureTools for more informations.
+By default it use a mongo database, but you can use a pickle file by changing `serializableDictParams` in the init method (set `"useMongodb": False`). See SerializableDict from DatastructureTools for more informations.
+
+In this case you have to save data before stopping your python script using `uns.data.save()` so your requests will be cached in the file. It do the save automatically but each n actions, `save()` is intended to do it manually.
 
 ## Proxies
 

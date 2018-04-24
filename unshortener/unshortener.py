@@ -337,11 +337,30 @@ def test4():
         print()
         print()
 
+def testAlexis():
+    uns = Unshortener\
+    (
+        useProxy=False,
+        randomProxyFunct=None,
+        proxy=None,
+        serializableDictParams=\
+        {
+            "limit": 10000000,
+            "useMongodb": False,
+            "name": "unshortenedurls",
+            "cacheCheckRatio": 0.0,
+            "mongoIndex": "url",
+            "serializeEachNAction": 1,
+        }
+)
+    print(uns.unshort("https://bit.ly/2Hor6PN"))
+
 if __name__ == '__main__':
 #     test1()
 #     test2()
-    test3()
+#     test3()
 #     test4()
+    testAlexis()
 
 
 
