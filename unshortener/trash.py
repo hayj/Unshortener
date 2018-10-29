@@ -155,3 +155,4 @@ class UnshortenerOld():
             del result["html"]
             log("Unshort of " + result["url"] + " : " + str(result["status"]), self)
             return result
+

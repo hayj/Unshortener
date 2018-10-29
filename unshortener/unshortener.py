@@ -18,6 +18,7 @@ try:
     from systemtools.hayj import *
 except: pass
 import random
+from unshortener import config as unsConfig
 
 
 class Unshortener():
@@ -32,7 +33,6 @@ class Unshortener():
         serializableDictParams=\
         {
             "limit": 10000000,
-            "useMongodb": True,
             "name": "unshortenedurls",
             "cacheCheckRatio": 0.0,
             "mongoIndex": "url",
@@ -44,6 +44,8 @@ class Unshortener():
             "maxRetryIf407": 1,
         },
         user=None, password=None, host=None,
+        useMongodb=None,
+        hostname=None,
         shortenersDomainsFilePath=None,
         retryFailedRatio=0.5,
         useProxy=True,
@@ -54,6 +56,10 @@ class Unshortener():
         readOnly=False,
         proxy=None,
     ):
+        self.useMongodb = useMongodb
+        if self.useMongodb is None:
+            self.useMongodb = unsConfig.useMongodb
+
         # We store some params:
         self.retryFailedRatio = retryFailedRatio
         self.verbose = verbose
@@ -79,17 +85,21 @@ class Unshortener():
 
         # We init the mongo collection through SerializableDict:
         self.serializableDictParams = serializableDictParams
-        if host is None:
+        if hostname is None: hostname = unsConfig.hostname
+        if host is None: host = unsConfig.host
+        if user is None: user = unsConfig.user
+        if password is None: password = unsConfig.password
+        if user == "hayj":
             try:
-                (user, password, host) = getOctodsMongoAuth()
+                (user, password, host) = getMongoAuth(user=user, hostname=hostname)
             except: pass
         self.serializableDictParams["user"] = user
         self.serializableDictParams["password"] = password
         self.serializableDictParams["host"] = host
         self.serializableDictParams["logger"] = self.logger
         self.serializableDictParams["verbose"] = self.verbose
+        self.serializableDictParams["useMongodb"] = self.useMongodb
         self.data = SerializableDict(**self.serializableDictParams)
-
 
         # We get shorteners domains:
         self.shortenersDomainsFilePath = shortenersDomainsFilePath
@@ -106,6 +116,8 @@ class Unshortener():
 
     def initShortenersDomains(self):
         if self.shortenersDomains is None:
+            if not isFile(self.shortenersDomainsFilePath):
+                raise Exception("File " + str(self.shortenersDomainsFilePath) + " not found.")
             shorteners = fileToStrList(self.shortenersDomainsFilePath, removeDuplicates=True)
             newShorteners = []
             for current in shorteners:
@@ -188,6 +200,51 @@ class Unshortener():
                 return result["lastUrl"]
             else:
                 return None
+
+    def add(self, result, onlyHttpBrowser=True):
+        # We check readOnly:
+        if self.readOnly:
+            logError("The unshortener is set as read only!", self)
+            return False
+        # We check None:
+        if result is None or not isinstance(result, dict):
+            logError("No data found to add in unshortener!", self)
+            return False
+        resultStr = lts(reduceDictStr(result))
+        # We check keys:
+        for key in \
+        [
+            "lastUrl", "browser",
+            "lastUrlDomain", "historyCount", "html",
+            "title", "status",
+        ]:
+            if key not in result:
+                logError(key + " is not in:\n" + resultStr, self)
+                return False
+        # We check keys not None:
+        for key in ["url", "domain"]:
+            if not dictContains(result, key):
+                logError(key + " is not in:\n" + resultStr, self)
+                return False
+        # We check the browser:
+        if onlyHttpBrowser and result["browser"] != "http":
+            logError("The browser must be an http browser!", self)
+            return False
+        # We delete and add some elements:
+        if "crawlingElement" in result:
+            del result["crawlingElement"]
+        if "relevant" not in result:
+            result["relevant"] = True
+        # We check the status:
+        if result["httpStatus"] == 200 or result["httpStatus"] == 404:
+            # We add the data:
+            self.data[result["url"]] = result
+            return True
+        else:
+            logError("Cant't add this data to unshortener because of the http status:\n"\
+                      + resultStr, self)
+            return False
+        return False
 
     def request\
     (
@@ -340,6 +397,7 @@ def test4():
 def testAlexis():
     uns = Unshortener\
     (
+        shortenersDomainsFilePath="/tmp",
         useProxy=False,
         randomProxyFunct=None,
         proxy=None,
@@ -352,7 +410,7 @@ def testAlexis():
             "mongoIndex": "url",
             "serializeEachNAction": 1,
         }
-)
+    )
     print(uns.unshort("https://bit.ly/2Hor6PN"))
 
 if __name__ == '__main__':
